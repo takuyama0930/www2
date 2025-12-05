@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>歴史マップ（大垣・関ヶ原・垂井）</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+  <style>
+    body { font-family: "Segoe UI", sans-serif; margin: 0; padding: 0; background: #fafafa; }
+    #map { height: 78vh; width: 100%; }
+    .toolbar {
+      display: flex; flex-wrap: wrap; gap: 8px; padding: 10px;
+      background: #e3f2fd; align-items: center; border-bottom: 1px solid #ccc;
+    }
+    input, button, select, textarea {
+      padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc;
+    }
+    button { background: #1976d2; color: white; cursor: pointer; }
+    button:hover { background: #0d47a1; }
+    .modal {
+      position: fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+      z-index:3000; background:white; padding:12px; border-radius:10px;
+      box-shadow:0 8px 30px rgba(0,0,0,0.2); display:none; width:90%; max-width:720px;
+      max-height:85vh; overflow-y:auto;
+    }
+    
+    /* ピン詳細パネル */
+    .pin-detail {
+      position: fixed;
+      background: white;
+      padding: 16px;
+      border-radius: 10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+      z-index: 2000;
+      display: none;
+      max-width: 400px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    
+    @media (min-width: 768px) {
+      .pin-detail {
+        right: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 350px;
+      }
+    }
+    
+    @media (max-width: 767px) {
+      .pin-detail {
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-width: 100%;
+        border-radius: 10px 10px 0 0;
+        max-height: 60vh;
+      }
+    }
+    
+    .pin-detail h3 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+    }
+    
+    .pin-detail .close-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #666;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0;
+    }
+    
+    .pin-detail .close-btn:hover {
+      background: #333;
+    }
+    
+    .pin-detail img {
+      max-width: 100%;
+      border-radius: 6px;
+      margin: 8px 0;
+    }
+    
+    .pin-detail .actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    
+    .pin-detail .info-row {
+      margin: 8px 0;
+      line-height: 1.6;
+    }
+    .modal .row{ margin-bottom:8px }
+    label{ display:block; font-size:13px; margin-bottom:4px }
+    .small{ font-size:12px; color:#666 }
+  
+    .toggle-wrap{
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .toggle-switch{
+      position:relative;
+      width:46px;
+      height:24px;
+      background:#ccc;
+      border-radius:12px;
+      cursor:pointer;
+      transition:.2s;
+      border:none;
+    }
+    .toggle-switch::after{
+      content:'';
+      position:absolute;
+      width:20px;height:20px;
+      top:2px;left:2px;
+      background:white;
+      border-radius:50%;
+      transition:.2s;
+    }
+    .toggle-switch.on{
+      background:#4caf50;
+    }
+    .toggle-switch.on::after{
+      transform:translateX(22px);
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="toggle-wrap">
+      <span id="toggleLabel">作成モードOFF</span>
+      <button id="toggleCreate" class="toggle-switch" aria-label="create-toggle"></button>
+    </div>
+
+    <input type="number" id="minYear" placeholder="開始年" style="width:100px;">
+    <input type="number" id="maxYear" placeholder="終了年" style="width:100px;">
+    <button id="filterYear">絞り込み</button>
+    <button id="resetFilter">リセット</button>
+    <input type="text" id="tagSearch" placeholder="#タグ検索 (#歴史 など)" style="flex:1;">
+    <button id="searchTag">タグ検索</button>
+    <button id="saveJSON">JSONで保存</button>
+    <button id="saveCSV">CSVで保存</button>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="pinDetail" class="pin-detail">
+    <button class="close-btn" id="closePinDetail">×</button>
+    <div id="pinDetailContent"></div>
+  </div>
+
+  <div id="modal" class="modal">
+    <h3 id="modalTitle">史跡を追加 / 編集</h3>
+    <div class="row"><label>タイトル</label><input type="text" id="fTitle" /></div>
+    <div class="row">
+      <label>年代(西暦・任意)</label>
+      <input type="number" id="fYear" placeholder="例: 1600" />
+      <div class="small">※空欄でもOKです</div>
+    </div>
+    <div class="row"><label>時代(任意)</label><input type="text" id="fEra" /></div>
+    <div class="row"><label>説明</label><textarea id="fDesc"></textarea></div>
+    <div class="row"><label>ハッシュタグ(例:#戦国,#歴史)</label><input type="text" id="fTags" /></div>
+    <div class="row"><label>外部URL(任意)</label><input type="text" id="fURL" /></div>
+    <div class="row">
+      <label>画像(任意)</label>
+      <input type="file" id="fImage" accept="image/*" />
+      <img id="fPreview" style="display:none; max-width:100%; margin-top:6px; border-radius:6px" />
+      <button id="clearImage" style="display:none;background:#c62828;margin-top:6px;">画像を削除</button>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px">
+      <button id="btnCancel">キャンセル</button>
+      <button id="btnSave">保存</button>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'historical_map_places_v1';
+    let map = L.map('map').setView([35.36, 136.61], 12);
+    const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+    tileLayer.addTo(map);
+
+    let markers = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    let createMode = false;
+    let draftLat = null, draftLng = null;
+    let editingId = null;
+
+    const modal = document.getElementById('modal');
+    const fTitle = document.getElementById('fTitle');
+    const fYear = document.getElementById('fYear');
+    const fEra = document.getElementById('fEra');
+    const fDesc = document.getElementById('fDesc');
+    const fTags = document.getElementById('fTags');
+    const fURL = document.getElementById('fURL');
+    const fImage = document.getElementById('fImage');
+    const fPreview = document.getElementById('fPreview');
+    const clearImageBtn = document.getElementById('clearImage');
+    const btnSave = document.getElementById('btnSave');
+    const btnCancel = document.getElementById('btnCancel');
+
+    const toggleBtn = document.getElementById('toggleCreate');
+    const toggleLabel = document.getElementById('toggleLabel');
+    const pinDetail = document.getElementById('pinDetail');
+    const pinDetailContent = document.getElementById('pinDetailContent');
+    const closePinDetail = document.getElementById('closePinDetail');
+
+    toggleBtn.addEventListener('click', () => {
+      createMode = !createMode;
+      toggleBtn.classList.toggle('on', createMode);
+      toggleLabel.textContent = createMode ? '作成モードON' : '作成モードOFF';
+      pinDetail.style.display = 'none';
+    });
+
+    closePinDetail.onclick = () => {
+      pinDetail.style.display = 'none';
+    };
+
+    function saveToStorage(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(markers)); }
+
+    function renderMarkers(list = markers) {
+      map.eachLayer(layer => { if (layer instanceof L.Marker) map.removeLayer(layer); });
+      tileLayer.addTo(map);
+      list.forEach(p => {
+        const m = L.marker([p.lat, p.lng]).addTo(map);
+        m.on('click', () => showPinDetail(p));
+      });
+    }
+
+    function showPinDetail(p) {
+      pinDetail.style.display = 'block';
+      const tagsText = p.tags?.length ? ('タグ: ' + p.tags.join(', ')) : '';
+      let html = `<h3>${escapeHtml(p.title)}</h3>`;
+      html += `<div class="info-row"><strong>時代:</strong> ${escapeHtml(p.era)} ${p.year ? '('+p.year+'年)' : ''}</div>`;
+      html += `<div class="info-row"><strong>説明:</strong><br>${escapeHtml(p.description)}</div>`;
+      if (tagsText) html += `<div class="info-row"><small>${escapeHtml(tagsText)}</small></div>`;
+      if (p.url) html += `<div class="info-row"><a href='${escapeAttr(p.url)}' target='_blank'>外部リンク</a></div>`;
+      if (p.image) html += `<img src='${p.image}'>`;
+      
+      if (createMode) {
+        html += `<div class="actions">`;
+        html += `<button class='btn-edit' data-id='${p.id}'>編集</button>`;
+        html += `<button class='btn-del' data-id='${p.id}' style='background:#c62828'>削除</button>`;
+        html += `</div>`;
+      }
+      
+      pinDetailContent.innerHTML = html;
+      
+      if (createMode) {
+        pinDetailContent.querySelectorAll('.btn-del').forEach(btn => btn.onclick = onDelete);
+        pinDetailContent.querySelectorAll('.btn-edit').forEach(btn => btn.onclick = onEdit);
+      }
+    }
+
+    map.on('popupopen', e => {
+      const container = e.popup._container;
+      container.querySelectorAll('.btn-del').forEach(btn => btn.onclick = onDelete);
+      container.querySelectorAll('.btn-edit').forEach(btn => btn.onclick = onEdit);
+    });
+
+    function onDelete(e) {
+      const id = e.target.getAttribute('data-id');
+      if (!confirm('本当にこのピンを削除しますか?')) return;
+      markers = markers.filter(m => m.id !== id);
+      saveToStorage();
+      renderMarkers();
+      pinDetail.style.display = 'none';
+    }
+
+    function onEdit(e) {
+      const id = e.target.getAttribute('data-id');
+      const item = markers.find(m => m.id === id);
+      if (!item) return;
+      editingId = item.id;
+      openModal(item);
+      pinDetail.style.display = 'none';
+    }
+
+    map.on('click', e => {
+      if (!createMode) return;
+      draftLat = e.latlng.lat;
+      draftLng = e.latlng.lng;
+      editingId = null;
+      openModal();
+    });
+
+    function openModal(item) {
+      modal.style.display = 'block';
+      fTitle.value = item?.title || '';
+      fYear.value = item?.year || '';
+      fEra.value = item?.era || '';
+      fDesc.value = item?.description || '';
+      fTags.value = item?.tags?.join(',') || '';
+      fURL.value = item?.url || '';
+      fPreview.src = item?.image || '';
+      fPreview.style.display = item?.image ? 'block' : 'none';
+      clearImageBtn.style.display = item?.image ? 'inline-block' : 'none';
+    }
+
+    btnCancel.onclick = () => { 
+      modal.style.display = 'none'; 
+      editingId = null; 
+      draftLat = draftLng = null; 
+    };
+
+    fImage.onchange = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        fPreview.src = reader.result;
+        fPreview.style.display = 'block';
+        clearImageBtn.style.display = 'inline-block';
+      };
+      reader.readAsDataURL(file);
+    };
+
+    clearImageBtn.onclick = () => {
+      fImage.value = '';
+      fPreview.src = '';
+      fPreview.style.display = 'none';
+      clearImageBtn.style.display = 'none';
+    };
+
+    btnSave.onclick = () => {
+      if (!fTitle.value.trim()) return alert('タイトルを入力してください');
+      const item = {
+        id: editingId || 'm' + Date.now(),
+        title: fTitle.value.trim(),
+        year: fYear.value ? Number(fYear.value) : null,
+        era: fEra.value.trim(),
+        description: fDesc.value.trim(),
+        tags: fTags.value.split(',').map(t => t.trim()).filter(Boolean),
+        url: fURL.value.trim(),
+        image: fPreview.src || null,
+        lat: editingId ? markers.find(x => x.id === editingId).lat : draftLat,
+        lng: editingId ? markers.find(x => x.id === editingId).lng : draftLng,
+      };
+      if (!editingId) markers.push(item);
+      else markers = markers.map(m => m.id === editingId ? item : m);
+      saveToStorage();
+      renderMarkers();
+      modal.style.display = 'none';
+      editingId = null;
+      draftLat = draftLng = null;
+    };
+
+    document.getElementById('filterYear').onclick = () => {
+      const minY = document.getElementById('minYear').value;
+      const maxY = document.getElementById('maxYear').value;
+      const tagQ = document.getElementById('tagSearch').value.trim();
+      const tags = tagQ ? tagQ.split(',').map(t => t.startsWith('#') ? t : '#' + t) : [];
+      let list = markers;
+      if (minY || maxY) list = list.filter(m => m.year && (!minY || m.year >= minY) && (!maxY || m.year <= maxY));
+      if (tags.length) list = list.filter(m => m.tags && tags.every(t => m.tags.includes(t)));
+      renderMarkers(list);
+    };
+
+    document.getElementById('searchTag').onclick = () => document.getElementById('filterYear').click();
+    document.getElementById('resetFilter').onclick = () => {
+      document.getElementById('minYear').value = '';
+      document.getElementById('maxYear').value = '';
+      document.getElementById('tagSearch').value = '';
+      renderMarkers();
+    };
+
+    document.getElementById('saveJSON').onclick = () => {
+      const blob = new Blob([JSON.stringify(markers, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'historical-map.json';
+      a.click();
+    };
+    
+    document.getElementById('saveCSV').onclick = () => {
+      const header = ['id','title','year','era','description','tags','url','lat','lng'];
+      const rows = markers.map(m => header.map(h => JSON.stringify(m[h] || '')).join(','));
+      const blob = new Blob([header.join(',') + '\n' + rows.join('\n')], {type:'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'historical-map.csv';
+      a.click();
+    };
+
+    function escapeHtml(s){ return s ? s.replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) : ''; }
+    function escapeAttr(s){ return encodeURI(s || ''); }
+
+    renderMarkers();
+  </script>
+</body>
+</html>
